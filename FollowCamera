@@ -1,0 +1,24 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CameraFollow : MonoBehaviour
+{
+    [SerializeField, Tooltip("Camera smoothing variation")]
+    float smoothFollow;
+
+    Transform _FollowTarget;
+
+    private void Start()
+    {
+        // Get the player position
+        _FollowTarget = GameObject.FindGameObjectWithTag("Player").GetComponent<Transform>();
+    }
+
+    private void LateUpdate()
+    {
+        // Follow de player position
+        transform.position = new Vector3(Mathf.Lerp(_FollowTarget.position.x, Camera.main.transform.position.x, smoothFollow), 
+            Mathf.Lerp(_FollowTarget.position.y, Camera.main.transform.position.y, smoothFollow), -25f);
+    }
+}
