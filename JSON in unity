@@ -1,0 +1,124 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+
+public class WeaponsData : MonoBehaviour
+{
+    #region Class Weapons
+    [Serializable]
+    public class WeaponProperties
+    {
+        [Tooltip("The name of the weapon. (|!| OBS: This name is the same that will be used to change the current arming of the player.)")]
+        public string nameWeapon;
+        [Tooltip("Weapon damage.")]
+        public float Damage;
+        [Tooltip("Number of bullets per shot.")]
+        public float Pellets;
+        [Tooltip("The maximum distance the bullet travels.")]
+        public float Distance;
+        [Tooltip("Bullet speed")]
+        public float Speed;
+        [Tooltip("Fire Rate of the weapon")]
+        public float FireRate;
+        [Tooltip("Type of ammo.\n\nAvailable types are:\n-> basic\n-> piercing\n-> slug")]
+        public string ammoType;
+        [Tooltip("Position of instatiate")]
+        public Vector2 Pivot;
+    }
+
+    [Serializable]
+    public class ListData 
+    {
+        public WeaponProperties[] Data;
+    }
+
+    public ListData _weapons = new ListData();
+    #endregion
+
+    // local path of data 
+    string path;
+
+    // Call a load the Json file
+    private void Awake()
+    {
+        path = Application.dataPath + "/Data/WeaponData.json";
+        LoadJSON();
+    }
+
+    #region Read Json
+    // Read the Json file and get the values
+    public void ReadJSON() 
+    {
+        var OutJson = File.ReadAllText(path);
+        _weapons = JsonUtility.FromJson<ListData>(OutJson);
+    }
+    #endregion
+
+    #region Load Json
+    // Load the values
+    public void LoadJSON() 
+    {
+        if (File.Exists(path))
+            ReadJSON();
+        
+        else
+            WriteJSON();
+    }
+    #endregion
+
+    #region Write Json
+    // Write new data 
+    public void WriteJSON() 
+    {
+        path = Application.dataPath + "/Data/WeaponData.json";
+        var INjson = JsonUtility.ToJson(_weapons);
+        File.WriteAllText(path, INjson);
+    }
+    #endregion 
+
+    private int findObjects(string WeaponName) 
+    {
+        for (int i = 0; i < _weapons.Data.Length; i++)
+        {
+            if (WeaponName == _weapons.Data[i].nameWeapon)
+                return i;
+        }
+
+        return 0;
+    }
+
+    public float GetSpeed(string WeaponName) 
+    {
+        return _weapons.Data[findObjects(WeaponName)].Speed;
+    }
+
+    public float GetPellets(string WeaponName)
+    {
+        return _weapons.Data[findObjects(WeaponName)].Pellets;
+    }
+    public float GetDamage(string WeaponName)
+    {
+        return _weapons.Data[findObjects(WeaponName)].Damage;
+    }
+    public float GetDistance(string WeaponName)
+    {
+        return _weapons.Data[findObjects(WeaponName)].Distance;
+    }
+
+    public float GetFireRate(string WeaponName)
+    {
+        return _weapons.Data[findObjects(WeaponName)].FireRate;
+    }
+
+    public string GetAmmoType(string WeaponName)
+    {
+        return _weapons.Data[findObjects(WeaponName)].ammoType;
+    }
+
+    public Vector2 GetPivot(string WeaponName) 
+    {
+        return _weapons.Data[findObjects(WeaponName)].Pivot;
+    }
+}
