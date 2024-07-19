@@ -1,0 +1,482 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using Unity.Mathematics;
+using UnityEngine;
+using TMPro;
+using Random = UnityEngine.Random;
+using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using Debug = UnityEngine.Debug;
+using UnityEditor;
+using Unity.VisualScripting;
+
+public class SpawnSystem : MonoBehaviour
+{
+/* _______________________________________________________________________________________________________________________________________________________________________________
+
+                                       
+                                    -------->    !   ESSE CÓDIGO NÃO ESTÁ COMPLETO, BUGS E ERROS PODEM E VÃO OCORRER   !      <--------  
+
+_________________________________________________________________________________________________________________________________________________________________________________ */
+
+    private enum ActualDifficulty
+    {
+        Easy,
+        Medium,
+        Hard
+    }
+
+    [SerializeField, Tooltip("Timer for how long the player survived")]
+    private TMP_Text ShowTimer;
+    [SerializeField, Tooltip("Timer to start arcade mode")]
+    private TMP_Text CountDownTimerToStart;
+    [SerializeField, Tooltip("The buff Event of enemies")]
+    private GameObject Eve_Buff;
+    [SerializeField, Tooltip("Weapon box prefab")]
+    private GameObject weapons_Box;
+    [SerializeField]
+    private GameObject Text_BuffEvent;
+  
+    [Header("-- Spawner Properties --\n")]
+    [SerializeField, Tooltip("It starts from the selected difficulty and increases to the maximum difficulty during the round.")]
+    ActualDifficulty difficulty;
+    [SerializeField, Tooltip("enemies considered Easy")]
+    private GameObject[] _enemysLevelEasy;
+    [SerializeField, Tooltip("enemies considered Medium")]
+    private GameObject[] _enemysLevelMedium;
+    [SerializeField, Tooltip("enemies considered Hard")]
+    private GameObject[] _enemysLevelHard;
+    [SerializeField, Tooltip("Enemies that have a unique mechanics and spawn.")]
+    private GameObject[] _enemysLevelSpecial;
+    [SerializeField, Tooltip("Spawn delay from one enemy to another")]
+    private float DelaySpawn;
+    [SerializeField, Tooltip("Timer to start a new level")]
+    private float TimerToStart_Level;
+    [SerializeField, Tooltip("Maximum weight capacity on the scene of normal-type enemies.")]
+    private int Maximum_Weight_Normal;
+    [SerializeField, Tooltip("Maximum weight capacity on the scene of special-type enemies.")]
+    private int Maximum_Weight_Special;
+
+
+    [Header("\n-- Progression modifiers --\n")]
+    [SerializeField, Tooltip("This variable decreases the chance of easy and medium enemy spawns.\n\n The value need to be between 0.00 and 1.00.")]
+    private float EffectInDifficultyHard;
+    [SerializeField, Tooltip("Easy enemy spawn base value. \n\nOBS: This value is used when the level is in medium and hard difficulty")]
+    private float PercentageSpawnEasyEnemies;
+    [SerializeField, Tooltip("Medium enemy spawn base value. \n\nOBS: This value is used when the level is in hard difficulty")]
+    private float PercentageSpawnMediumEnemies;
+    [SerializeField, Tooltip("Necessary points to be in medium difficulty")]
+    private int PointsTobeInMediumDifficulty;
+    [SerializeField, Tooltip("Necessary points to be in medium difficulty")]
+    private int PointsTobeInHardDifficulty;
+    [SerializeField, Tooltip("New enemy spawn time in medium difficulty")]
+    private float DecreaseSpawnInimiesInMediumDifficulty;
+    [SerializeField, Tooltip("New enemy spawn time in hard difficulty")]
+    private float DecreaseSpawnInimiesInHardDifficulty;
+
+  //  [SerializeField, Tooltip("Maximum amount of power ups in a round.")]
+  //  private int Max_PowerUp;
+
+    [Header("\n-- Box and Power Ups Configs --\n")]
+    [SerializeField, Tooltip("Update time for crate spawn")]
+    float SpawnWeaponBox;
+ 
+
+    [Header("\n-- Buff Event --\n")]
+   // [SerializeField, Tooltip("How many times buff event can happen in a round.")]
+   // private float Amount_event_EnemyBuff;
+    [SerializeField, Tooltip("Enemy buff event duration.")]
+    private float Event_EnemyBuff_MaxTime;
+    [SerializeField, Tooltip("Time for the function call. \n(At each call it is checked if the function is possible to call the function)")]
+    private float CanAccess_BuffEvent;
+
+    // Auxiliary time control variables
+    float Enemy_Spawntimer = 0.0f; // Enemies spanw timer
+    float LevelTimer; // Level timer
+    bool NewStart = true;
+
+    Animator outOfScren; // Buff Event animator
+
+    bool Spider = false;
+
+    void Start()
+    {
+        outOfScren = Eve_Buff.GetComponent<Animator>();
+        ResetLevelValues(); // Reset all time variables
+    }
+
+    #region Main
+    bool Started = false;
+    float Aux_DelaySpawn;
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.I)) 
+        {
+            GameObject aux = RelocateEnemy(true);
+            Instantiate(_enemysLevelSpecial[Random.Range(0, _enemysLevelSpecial.Length)], aux.transform.position, aux.transform.rotation); 
+        }
+
+        if (TimerToStart_Level <= 0)
+        {
+
+            if (!Started) LevelTimer = 0.00f;
+
+            // after finishing ("CountDownTimerToStart"), it is set to start the timer ("LevelTimer")
+            // for how long the player will stay alive in arcade mode.
+            CountDownTimerToStart.gameObject.SetActive(false);
+            ShowTimer.gameObject.SetActive(true);
+            ShowTimer.text = Convert.ToString(LevelTimer.ToString("F2"));
+
+            if (NewStart)
+            {
+                Enemy_Spawntimer = DelaySpawn; // When the first enemy to spanw, is immediate
+                NewStart = false; // The actual level is started
+            }
+
+            SpawnSelector();
+            CallBuffEvent();
+            Box_Spawn();
+            TimeControlerIngame();
+
+            Started = true;
+        }
+
+        if (!Started)
+        {  
+            CountDownTimerToStart.text = Convert.ToString(TimerToStart_Level.ToString("F0")); // Show how many time left to start the arcade
+            TimerToStart_Level -= Time.deltaTime;
+        }
+
+        if(GameObject.FindGameObjectWithTag("Player") != null) LevelTimer += Time.deltaTime;
+    }
+    #endregion
+
+    #region Buff Event
+    // Enemy buff event --- 
+    // int CountTimesInScene = 0; // Auxiliary variable that checks how many times the event was called.
+    private float CanCallEvent = 0.0f; // Variable that helps to check the current time of the scene.
+    float BuffInScene = 0.0f; // Time control variable that the buff event stays on the scene. If this variable is equal to the variable \/
+                              // (Event_EnemyBuff_MaxTime) the event leaves the scene.
+    bool InScene = false; // Checks if the event is active in the scene.
+
+    private void CallBuffEvent()
+    {
+        if (CanCallEvent > CanAccess_BuffEvent)
+        {
+           // if (CountTimesInScene <= Amount_event_EnemyBuff)
+           // {
+                if (!InScene)
+                {
+                    // if the event equals false, the text don't appear
+                    Text_BuffEvent.SetActive(false);
+                    // Generate a random value
+                    float aux = Random.Range(0.0f, 1.0f);
+                    float ChanceToHappen = 0.2f;
+
+                    // if the generated value is within the percentage, the event happens
+                    if (aux <= ChanceToHappen) InScene = true;
+                }
+           // }
+            CanCallEvent = 0.00f;
+        }
+        else
+        {
+            if (!InScene) CanCallEvent += Time.deltaTime;
+            else if (InScene)
+            {
+
+                // if the event equals true, the text appear
+                Text_BuffEvent.SetActive(true);
+                // When the time value is greater than allowed, the event ends
+                if (BuffInScene <= Event_EnemyBuff_MaxTime)
+                {
+                    Eve_Buff.gameObject.SetActive(true);
+                    outOfScren.Play("Spaceships_InScene");
+                }
+                else
+                {
+                    outOfScren.Play("Spaceships_OutScene");
+                    InScene = false;
+                    BuffInScene = 0.00000f;
+                //    CountTimesInScene++;
+                }
+
+                BuffInScene += Time.deltaTime;
+            }
+        }
+
+    }
+    #endregion
+
+    #region Return Point
+
+    public GameObject RelocateEnemy(bool forced) 
+    {
+        GameObject auxPosition = null;
+
+        if (!forced)
+        {
+            if (InScene)
+            {
+                GameObject[] PointsToSpawn = GameObject.FindGameObjectsWithTag("BuffSpawn");
+                auxPosition = PointsToSpawn[Random.Range(0, PointsToSpawn.Length)];
+            }
+            else
+            {
+                GameObject ShipSpawn = GameObject.FindGameObjectWithTag("NormalSpawn");
+                auxPosition = ShipSpawn;
+            }
+
+            return auxPosition;
+        }
+        else
+        {
+            GameObject[] PointsToSpawn = GameObject.FindGameObjectsWithTag("Wall");
+            int x = 0;
+
+            if (Spider) // if is true
+            {
+                List<int> PlacesToSpawn = new List<int>();
+
+                for (int i = 0; i < PointsToSpawn.Length; i++) // Search for points didn't visited
+                {
+                    if (!PointsToSpawn[i].GetComponent<LimiterSpawn>().SpiderSpawn_Limiter())
+                    {
+                        PlacesToSpawn.Add(i);
+                    }
+                }
+
+                if (PlacesToSpawn.Count > 0) // If it's greater than 0, there are points that are not occupied.
+                {
+                    x = PlacesToSpawn[Random.Range(0, PlacesToSpawn.Count)];
+                    PointsToSpawn[x].GetComponent<LimiterSpawn>().SpiderSpawn_Limiter(true);
+                    x = PlacesToSpawn[x];
+
+                    auxPosition = PointsToSpawn[x];
+                }
+
+                PlacesToSpawn.Clear();
+
+                for (int i = 0; i < PointsToSpawn.Length; i++) // Search for points didn't visited
+                {
+                    if (!PointsToSpawn[i].GetComponent<LimiterSpawn>().SpiderSpawn_Limiter())
+                    {
+                        PlacesToSpawn.Add(i);
+                    }
+                }
+
+                if(PlacesToSpawn.Count > 0) Spider = false;
+                else Spider = true;
+
+                PlacesToSpawn.Clear();
+            }
+            else 
+            {
+                x = Random.Range(0, PointsToSpawn.Length);
+                auxPosition = PointsToSpawn[x];
+            }
+        }
+
+        return auxPosition;
+    }
+
+    #endregion
+
+    #region Control Max Weight
+
+    int GetMaxWeigth(string tag) 
+    {
+        GameObject[] Aux = GameObject.FindGameObjectsWithTag(tag);
+        int n_Weigth = 0;
+
+        if (Aux.Length > 0) 
+        {
+            for (int i = 0; i < Aux.Length; i++)
+            {
+                n_Weigth += Aux[i].GetComponent<Enemy_Movement>().GetWeigth();
+            }
+        }
+
+        return n_Weigth;
+    }
+
+    #endregion
+
+    #region Spawn System
+
+    float ChooseTypeSpawn;
+    private void SpawnSelector() 
+    {
+        Enemy_Spawntimer += Time.deltaTime;
+
+        if (Enemy_Spawntimer > Aux_DelaySpawn) // if "timer" is higher than "DelaySpawn" , spawn the enemys
+        {
+            ChooseTypeSpawn = Random.Range(0.0f, 1.0f);
+           
+            if (ChooseTypeSpawn >= 0.3f)
+            {
+                if (GetMaxWeigth("Enemy") < Maximum_Weight_Normal) NormalSpawn();
+                else SpecialSpawn();
+            } 
+            else 
+            {
+                if (GetMaxWeigth("Special_Enemy") < Maximum_Weight_Special) SpecialSpawn();
+                else NormalSpawn();
+            }
+
+            Enemy_Spawntimer = 0.0f;
+        }
+    }
+
+    void SpecialSpawn()
+    {
+        /* 
+         *  Future Update
+         * switch (difficulty)
+         {
+             case ActualDifficulty.Easy:
+                 break;
+
+             case ActualDifficulty.Medium:
+                 break;
+
+             case ActualDifficulty.Hard:
+                 break;
+         } */
+
+        GameObject AuxGameObject = RelocateEnemy(true);
+        int RangeAux = Random.Range(0, _enemysLevelSpecial.Length);
+
+        try
+        {
+            if (RangeAux == 0 && Spider == false)
+            {
+                Spider = true;
+                Instantiate(_enemysLevelSpecial[RangeAux], AuxGameObject.transform.position, AuxGameObject.transform.rotation); // Spider rotation
+            }
+            else
+            {
+                if (Spider) RangeAux = 1; //RangeAux = Random.Range(1, _enemysLevelSpecial.Length);
+                Instantiate(_enemysLevelSpecial[RangeAux], AuxGameObject.transform.position, Quaternion.identity); // Normal Rotation
+            }
+        }catch(Exception ex) { }
+    }
+
+    void NormalSpawn()
+    {
+        switch (difficulty)
+        {
+            case ActualDifficulty.Easy:
+                Instantiate(_enemysLevelEasy[Random.Range(0, _enemysLevelEasy.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                break;
+
+            case ActualDifficulty.Medium:
+                float auxMediumSelect = Random.Range(0.00f, 1.00f);
+
+                if (auxMediumSelect <= PercentageSpawnEasyEnemies)
+                {
+                    Instantiate(_enemysLevelEasy[Random.Range(0, _enemysLevelEasy.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                }
+                else
+                {
+                    Instantiate(_enemysLevelMedium[Random.Range(0, _enemysLevelMedium.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                }
+
+                break;
+
+            case ActualDifficulty.Hard:
+                float auxHardSelect = Random.Range(0.00f, 1.00f);
+
+                if (auxHardSelect <= Mathf.Clamp(Mathf.Abs(PercentageSpawnEasyEnemies - EffectInDifficultyHard), 0.00f, 1.00f))
+                {
+                    Instantiate(_enemysLevelEasy[Random.Range(0, _enemysLevelEasy.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                }
+                else if ((auxHardSelect > Mathf.Clamp(Mathf.Abs(PercentageSpawnEasyEnemies - EffectInDifficultyHard), 0.00f, 1.00f)) && (auxHardSelect <=
+                    Mathf.Clamp(Mathf.Abs(PercentageSpawnMediumEnemies - EffectInDifficultyHard), 0.00f, 1.00f)))
+                {
+                    Instantiate(_enemysLevelMedium[Random.Range(0, _enemysLevelMedium.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                }
+                else
+                {
+                    Instantiate(_enemysLevelHard[Random.Range(0, _enemysLevelHard.Length)], RelocateEnemy(false).transform.position, quaternion.identity);
+                }
+                break;
+
+        }
+    }
+
+    #endregion
+
+    #region time evolution system
+    private void TimeControlerIngame()
+    {
+        // Recriar
+    }
+    #endregion
+
+    #region Reset Values
+    // Resets all time variables to start a new phase
+    private void ResetLevelValues()
+    {
+        Aux_DelaySpawn = DelaySpawn;
+        //LevelTimer = Max_Time;
+        LevelTimer = 0.00f;
+        Enemy_Spawntimer = 0.0f;
+        NewStart = true;
+    }
+    #endregion
+
+    #region Change Weapon (Box)
+    // Spawn Weapons Boxes
+    float timertoSpawnBox = 0.00f;
+    bool stopCounting_Box = false;
+
+    private void Box_Spawn() 
+    {
+        float Rand = Random.Range(0.00f, 1.00f);
+       
+        if (timertoSpawnBox >= SpawnWeaponBox)
+        {
+            stopCounting_Box = true;
+
+            if (Rand > 0.5f)
+            {
+                // Checks that the number of boxes in the scene does not exceed the established limit
+                if (GameObject.FindGameObjectsWithTag("Box_InScene").Length < 1)
+                {
+                    // Get all spawn points in the scene
+                    GameObject[] Boxes = GameObject.FindGameObjectsWithTag("Box");
+                    Instantiate(weapons_Box, Boxes[Random.Range(0, Boxes.Length)].transform.position, quaternion.identity);
+                }
+                timertoSpawnBox = 0.00f;
+                Rand = 0.00f;
+                stopCounting_Box = false;
+            }
+        }
+        else if(!stopCounting_Box) timertoSpawnBox += Time.deltaTime;
+        
+    }
+    #endregion
+
+    #region Returns
+    //                        --------------------------------------- objects return ---------------------------------------
+
+    public GameObject SendMediumActor()
+    {
+        return _enemysLevelMedium[Random.Range(0, _enemysLevelMedium.Length)];
+    }
+    public GameObject SendHardActor()
+    {
+        return _enemysLevelHard[Random.Range(0, _enemysLevelHard.Length)];
+    }
+
+    //                        --------------------------------------- Values Return ---------------------------------------
+
+    public bool BuffEventIsInScene() 
+    {
+        return InScene;
+    }
+    #endregion
+}
