@@ -1,0 +1,277 @@
+using JetBrains.Annotations;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using Unity.Mathematics;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.Profiling;
+
+public class Enemy_Movement : MonoBehaviour
+{
+    public enum TypeOfMovement
+    {
+        Normal,
+        UpDown,
+        Stop,
+        FollowPlayer
+    }
+    
+    public enum SpecialAbility 
+    {
+        None,
+        Dash,
+        Intangible,
+        Shield,
+        Special,
+        SpeedGain,
+        Fly
+    }
+
+    [SerializeField]
+    GameObject Bomb;
+    [SerializeField]
+    Transform Bomb_Spawn_Point;
+    [SerializeField]
+    float secondsToTrowBomb;
+    [SerializeField]
+    Animator AnimBomber;
+
+    bool canThrowBomb = true;
+
+    [Header("\n -- Enemy behavior attributes -- \n")]
+    public TypeOfMovement _typeOfMovement;
+    public SpecialAbility _Ability;
+    [SerializeField, Tooltip("Determines the speed of the enemy. (float value)")]
+    float speed;
+    [SerializeField, Tooltip("The weight of enemies")]
+    int Weigth;
+
+    //[SerializeField, Tooltip("The distance to detect a entity.")]
+    //float distanceDetection;
+    //[SerializeField, Tooltip("Time for apply a shield. (in seconds.)")]
+    //float _maxTimeForNextShield;
+
+    Rigidbody2D _Rb;
+    Sensor_Enemy_Collision _sensor;
+    AuxiliaryDetector _auxiliaryDetector;
+
+    //public float MaxTimeForNextShield { get => _maxTimeForNextShield; set => _maxTimeForNextShield = value; }
+    //public float DistanceDetection { get => distanceDetection; set => distanceDetection = value; }
+    
+    void Start()
+    {
+        _auxiliaryDetector = GetComponentInChildren<AuxiliaryDetector>();
+
+        speed = speed <= 0 ? 4.0f : speed; // if in case the speed value is 0, then 4 otherwise the speed itself
+        _Rb = GetComponent<Rigidbody2D>();
+
+        if (_Ability != SpecialAbility.Intangible)
+        {
+            _sensor = GetComponentInChildren<Sensor_Enemy_Collision>();
+
+            if (transform.localScale.x == 1) _sensor.IsTouching = false;
+            else _sensor.IsTouching = true;
+        }
+    }
+
+    RaycastHit2D CheckGround;
+
+    void FixedUpdate()
+    {
+        if (_typeOfMovement != TypeOfMovement.Stop)
+        {
+            if (_Ability != SpecialAbility.Intangible)
+            {
+                NormalMove();
+            }
+            else FollowPlayerMovement();
+        }
+
+        BomberMove();
+    }
+
+    #region Normal/UPDown Movement
+    private void NormalMove()
+    {
+        Vector2 aux;
+
+        switch (_typeOfMovement)
+        {
+            default:
+                switch (_sensor.IsTouching)
+                {
+                    case false:
+                        aux = Vector2.right * speed;
+                        break;
+
+                    case true:
+                        aux = Vector2.left * speed;
+                        break;
+                }
+                break;
+
+            case TypeOfMovement.UpDown:
+                switch (_sensor.IsTouching)
+                {
+                    case false:
+                        aux = Vector2.up * speed;
+                        break;
+
+                    case true:
+                        aux = Vector2.down * speed;
+                        break;
+                }
+                break;
+        }
+
+        _Rb.velocity = aux;
+
+        // Apply physics on enemy
+        _Rb.velocity += _typeOfMovement == TypeOfMovement.UpDown ? new Vector2(0f, _Rb.velocity.y) : new Vector2(_Rb.velocity.x, Physics2D.gravity.y);
+    }
+    #endregion
+
+    #region Follow Player Movement
+        void FollowPlayerMovement() 
+        {
+            Transform PlayerTarget = GameObject.FindGameObjectWithTag("Player").GetComponent<Transform>();
+
+            float distance = Vector2.Distance(transform.position, PlayerTarget.transform.position);
+            Vector2 Direction = PlayerTarget.position - transform.position;
+            Direction.Normalize();
+       
+            transform.position = Vector2.MoveTowards(transform.position, PlayerTarget.position, speed * Time.deltaTime);
+     
+            if (distance >= 0.00f)
+                transform.localScale = new Vector2(-1.0f, 1.0f);
+                else if(distance < 0.00f)
+                    transform.localScale = new Vector2(1.0f, 1.0f);
+        
+        }
+    #endregion
+
+    #region Dash
+    public void Dash() 
+    {
+        
+    }
+    #endregion
+
+    #region Sets movement type
+
+    public void SetTOMToStop() 
+    {
+        _typeOfMovement = TypeOfMovement.Stop;
+    }
+
+    public void SetTOMToUP_Down() 
+    {
+        _typeOfMovement = TypeOfMovement.UpDown;
+    }
+
+    #endregion
+
+    #region Animations sets
+
+    // ----------------- Spider
+
+    public void Spider_PeakingToAppear()
+    {
+        Animator animaux = GetComponent<Animator>();
+
+        animaux.Play("Spawning");
+    }
+
+    public void Spider_AppearToMove()
+    {
+        Animator animaux = GetComponent<Animator>();
+
+        animaux.Play("Walking");
+    }
+
+    // -----------------
+
+    //  ----------------- Bomber
+
+    void BomberMove() // main controll animation
+    {
+        if (_Ability == SpecialAbility.Fly)
+        {
+            try
+            {
+                Vector2 RayOrientation = gameObject.GetComponentInParent<Transform>().localScale.x > 0 ? RayOrientation = Vector2.right : RayOrientation = Vector2.left;
+                CheckGround = Physics2D.Raycast(this.transform.position, transform.TransformDirection(RayOrientation), 2f);
+
+                if (!_auxiliaryDetector.Detection)
+                {
+                    if (_typeOfMovement != TypeOfMovement.Stop)
+                    {
+                        // check where the bomber is
+                        if (CheckGround.collider.CompareTag("Ground")) FallingBomber();
+                        else Bomber_Walking();
+                    }
+                }
+                else BomberAuxDetect();
+            }
+            catch { }
+        }
+    }
+
+
+    public void Bomber_Walking() 
+    {
+        AnimBomber.Play("Walking");
+    }
+
+    public void Bomber_TrowBomb() 
+    {
+        _typeOfMovement = TypeOfMovement.Stop;
+        AnimBomber.Play("Bomb_Drop");
+    }
+
+    public void FallingBomber()
+    {
+        AnimBomber.Play("Falling");
+    }
+
+    // -----------------
+
+    #endregion
+
+    #region Special Conditions
+    
+    // ---------------------------- Bomber
+    void BomberAuxDetect() 
+    {
+        if (canThrowBomb) 
+        {
+            Bomber_TrowBomb();
+            Instantiate(Bomb, Bomb_Spawn_Point.position, quaternion.identity);
+            StartCoroutine(ChangeStats_DropToMove_Bomber());
+            StartCoroutine(BombDelay());
+        }
+    }
+
+    IEnumerator ChangeStats_DropToMove_Bomber() 
+    {
+        yield return new WaitForSeconds(0.90f);
+        _typeOfMovement = TypeOfMovement.Normal;
+    }
+
+    IEnumerator BombDelay()
+    {
+        canThrowBomb = false;
+        yield return new WaitForSeconds(secondsToTrowBomb);
+        canThrowBomb = true;
+    }
+
+    // ----------------------------
+
+    #endregion
+
+    public int GetWeigth()
+    {
+        return Weigth;
+    }
+}
