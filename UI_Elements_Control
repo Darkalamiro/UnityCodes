@@ -1,0 +1,187 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.InputSystem;
+using UnityEditor.UI;
+using TMPro;
+using System;
+
+public class ControllUI : MonoBehaviour
+{
+    [SerializeField]
+    private InputAction Key_OpenMenu;
+    [SerializeField]
+    private GameObject Pause_Menu;
+    [SerializeField]
+    private TMP_Text Score_Text;
+    [SerializeField]
+    private GameObject PlayerHUD;
+    [SerializeField]
+    private GameObject GameOverUI;
+    [SerializeField]
+    private Animator _lifePlayerAnimation;
+    [SerializeField]
+    private TMP_Text FinalScore;
+    [SerializeField]
+    private GameObject OptionsMenu;
+    [SerializeField]
+    private GameObject OptionsMenu_GameOver;
+
+    bool _openMenu = true;
+    int points = 0;
+
+    private void Update()
+    {
+        LifeUIControl();
+    }
+
+    #region GameOver And Plaver Life UI
+
+    bool controlWarning = true;
+    float TimerAux = 0.0f;
+    float TimerAux_GameOver = 0.0f;
+
+    private void LifeUIControl()
+    {
+        try
+        {
+            int LiveRemain = GameObject.FindGameObjectWithTag("Player").GetComponent<ActorLife>().Life;
+
+            switch (LiveRemain)
+            {
+                case 1:
+                    if (controlWarning)
+                    {
+                        if (TimerAux <= 1.00f)
+                            _lifePlayerAnimation.Play("1_Life_Transition");
+                        else controlWarning = false;
+
+                        TimerAux += Time.deltaTime;
+                    }
+                    else _lifePlayerAnimation.Play("1_life_Warning");
+
+                    break;
+
+                case 2:
+                    _lifePlayerAnimation.Play("2_Lifes");
+                    break;
+
+                case 3:
+                    _lifePlayerAnimation.Play("Bar_Start");
+                    break;
+            }
+        }
+        catch (Exception ex) { }
+
+        if (!OptionsMenu_GameOver.activeSelf) 
+        {
+            if (GameObject.FindGameObjectWithTag("Player") == null)
+            {
+                ControllGameMasterTimer(1.0f);
+
+                _lifePlayerAnimation.Play("Bar_Stop");
+
+                if (TimerAux_GameOver > 1.70f)
+                {
+                    GameOverUI.SetActive(true);
+                    PlayerHUD.SetActive(false);
+
+                    FinalScore.text = "Your total Score is: " + points;
+                }
+                else TimerAux_GameOver += Time.deltaTime;
+            }
+        }
+    }
+
+    #endregion
+
+    #region Enable Keys
+    private void OnEnable()
+    {
+        Key_OpenMenu.Enable();
+    }
+
+    private void OnDisable()
+    {
+        Key_OpenMenu.Disable();
+    }
+
+    private void Start()
+    {
+        Key_OpenMenu.performed += _ => PauseGame();
+    }
+    #endregion
+
+    #region Pause Menu
+    // Pause game
+    void PauseGame()
+    {
+        if (!OptionsMenu.activeSelf && !GameOverUI.activeSelf)
+        {
+            if (_openMenu)
+            {
+                GetActivePauseMenu();
+                PlayerHUD.SetActive(false);
+            }
+            else
+            {
+                ControllGameMasterTimer(1.0f);
+                Pause_Menu.SetActive(false);
+                PlayerHUD.SetActive(true);
+                _openMenu = true;
+            }
+        }
+    }
+
+    public void GetActivePauseMenu()
+    {
+        _openMenu = false;
+        Pause_Menu.SetActive(true);
+        ControllGameMasterTimer(0.0f);
+    }
+
+    public void ReturnTimeOnClickResume() { ControllGameMasterTimer(1.0f); }
+    #endregion
+
+    #region Points Controll
+    public void GetP_Points(int x)
+    {
+        points += x;
+        GetP_Points();
+    }
+
+    void GetP_Points()
+    {
+        Score_Text.text = "Score: " + points;
+    }
+    #endregion
+
+    void SaveKeybindings() 
+    {
+
+    }
+
+    // Stop/Restart the game
+    void ControllGameMasterTimer(float timer)
+    {
+        Time.timeScale = timer;
+    }
+
+    // Restart the level
+    public void Reload(string scene)
+    {
+        StartCoroutine(LoadScene(scene));
+    }
+
+    IEnumerator LoadScene(string x)
+    {
+        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(x);
+        ControllGameMasterTimer(1.0f);
+
+        while (!asyncLoad.isDone)
+        {
+            yield return null;
+        }
+    }
+}
